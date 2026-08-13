@@ -7,9 +7,10 @@ description: >-
   variants, categories, brands, images, metafields, inventory, price lists,
   promotions, coupons, gift certificates, banners, customer segments, orders,
   shipments, refunds, customers, customer groups, webhooks, redirects, scripts,
-  pages, blog posts, channels, or store settings. Also use it when the user
-  mentions a store hash, X-Auth-Token, api.bigcommerce.com, "the catalog",
-  "merch" tasks, bulk product updates, or asks to automate anything in a
+  pages, blog posts, channels, store settings, or B2B Edition (companies,
+  buyer users, quotes/RFQs, sales reps). Also use it when the user mentions a
+  store hash, X-Auth-Token, api.bigcommerce.com, "the catalog", "merch" tasks,
+  bulk product updates, B2B, quotes, or asks to automate anything in a
   BigCommerce store — even if they don't say "API".
 ---
 
@@ -131,6 +132,7 @@ For bulk mutations, do a read-first dry run: fetch what matches the filter, show
    - `references/merchandising.md` — promotions & coupon codes (v3), classic coupons (v2), price lists & assignments, customer segments/shopper profiles, banners, gift certificates, product sort order, channels & channel listings, featured/related products
    - `references/orders-customers.md` — orders (v2), order statuses, shipments, refunds & payment actions, order metafields, customers (v3), addresses, attributes, customer groups (v2), subscribers, wishlists
    - `references/store-admin.md` — store info & settings endpoints, webhooks, 301 redirects, scripts, pages, blog posts, themes & widgets, shipping zones/methods, tax classes, system logs
+   - `references/b2b-edition.md` — B2B Edition companies, buyer users, sales reps, quotes/RFQs. **Separate API host and auth headers from everything else** — read this before making any B2B call.
 3. **Plan the calls** — smallest number of requests, batch where possible, read before destructive writes.
 4. **Execute with `bc_api.py`**, watching for the failure modes below.
 5. **Verify and report** — re-read what changed, summarize IDs created/modified, and surface any partial failures (v3 batch endpoints return per-item errors in a 207-style response body; check every element).
