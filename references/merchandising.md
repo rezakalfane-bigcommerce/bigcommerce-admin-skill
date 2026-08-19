@@ -11,6 +11,7 @@ Scopes: **Marketing** (promotions, coupons, banners, gift certs), **Products** (
 - [Customer segments](#customer-segments)
 - [Banners & gift certificates](#banners--gift-certificates)
 - [Channels & listings](#channels--listings)
+- [Pricing & currencies](#pricing--currencies)
 - [Merchandising levers cheat sheet](#merchandising-levers-cheat-sheet)
 
 ## Promotions (v3)
@@ -20,10 +21,12 @@ The modern engine — use this over v2 coupons for anything new.
 | Action | Endpoint |
 |---|---|
 | List | `GET /v3/promotions` (filters: `status=`, `redemption_type=`, `name:like=`) |
-| Create | `POST /v3/promotions` |
+| Create | `POST /v3/promotions` (required: `name`, `redemption_type`, `rules`) |
 | Update / Delete | `PUT/DELETE /v3/promotions/{id}` |
-| Archive / restore | `POST /v3/promotions/archives` / `DELETE /v3/promotions/archives` (bulk, by IDs) |
+| Archive / restore (bulk) | `POST /v3/promotions/archive` / `POST /v3/promotions/unarchive` — body is a **bare array of IDs**, e.g. `[12, 13]` (not `{"ids":[...]}`, not "archives") |
 | Global settings | `GET/PUT /v3/promotions/settings` |
+
+`GET /v3/promotions` filters: `id=`, `name=`, `code=`, `currency_code=`, `redemption_type=`, `status=`, `channels=` (comma-separated IDs; storewide promos always match), `is_featured=`, `query=` (free-text over name+code). No documented `:like` filters on this endpoint.
 
 Anatomy of a promotion:
 
@@ -97,21 +100,31 @@ Per-customer-group / per-channel price overrides — the tool for wholesale/VIP 
 | Action | Endpoint |
 |---|---|
 | Lists | `GET/POST /v3/pricelists`, `PUT/DELETE /v3/pricelists/{id}` |
-| Records (per variant+currency) | `GET /v3/pricelists/{id}/records` |
-| **Bulk upsert records (≤1000)** | `PUT /v3/pricelists/{id}/records` |
-| Assignments | `GET/POST/DELETE /v3/pricelists/assignments` |
+| **Delete ALL price lists** | `DELETE /v3/pricelists` (no `{id}` — nukes every price list + its records, confirm loudly) |
+| Records (per variant+currency) | `GET /v3/pricelists/{id}/records` (10 concurrent GETs max) |
+| Create records (≤100/req) | `POST /v3/pricelists/{id}/records` — 10 concurrent max; rejects invalid items individually, but if a valid item **collides** with an existing record (same price_list_id+variant+currency) the **whole batch rolls back** (`meta.saved_records: 0`) |
+| **Bulk upsert records (≤1000/req)** | `PUT /v3/pricelists/{id}/records` — only 2 concurrent requests allowed (vs. 10 for POST); prefer POST for pure creates |
+| Upsert/delete one record by currency | `PUT/DELETE /v3/pricelists/{id}/records/{variant_id}/{currency_code}` |
+| Cross-price-list batch records | `POST/PUT /v3/pricelists/records` — same item shape, but each item carries its own `price_list_id` so one call can touch multiple price lists (POST concurrency 10; PUT concurrency only 1) |
+| Assignments (batch, ≤25/req) | `GET/POST/DELETE /v3/pricelists/assignments` |
+| Assignments (single upsert) | `PUT /v3/pricelists/{id}/assignments` (25 concurrent max) |
 
-Record shape: `{"variant_id": 123, "currency": "usd", "price": 8.5, "sale_price": 7.99, "retail_price": 12, "map_price": 8, "bulk_pricing_tiers": [...]}` — can also key by `sku`. Assignments bind a price list to a `customer_group_id` and/or `channel_id`: `POST /v3/pricelists/assignments` with `{"price_list_id": 1, "customer_group_id": 5}`.
+Record shape: `{"variant_id": 123, "currency": "usd", "price": 8.5, "sale_price": 7.99, "retail_price": 12, "map_price": 8, "bulk_pricing_tiers": [...]}` — can also key by `sku`; `currency` + (`variant_id` or `sku`) are required. Don't send a record for a parent product's own SKU when the product has variants.
+
+Assignments bind a price list to a `customer_group_id` and/or `channel_id` (both optional, but `price_list_id` is required): `POST /v3/pricelists/assignments` with a **bare array** `[{"price_list_id": 1, "customer_group_id": 5}]`. `DELETE /v3/pricelists/assignments` takes only query params (`id`, `price_list_id`, `customer_group_id`, `channel_id`, and `:in` variants) — no body — and requires at least one.
 
 ## Customer segments
 
 Segments drive targeted promotions (Enterprise feature).
 
-- `GET/POST/PUT/DELETE /v3/segments`
-- Shopper profiles: `GET/POST /v3/shopper-profiles` (a profile wraps a `customer_id`)
-- Membership: `GET/POST/DELETE /v3/segments/{seg_id}/shopper-profiles`
+- `GET/POST /v3/segments` (create body is a **bare array**, e.g. `[{"name": "VIP"}]`; max 1000 segments/store, 10 concurrent requests)
+- `PUT/DELETE /v3/segments` — these operate on the **collection**, not `/v3/segments/{id}` (that path doesn't exist). `PUT` body is a bare array of `{"id", "name", "description"}`; `DELETE` takes segment IDs via `?id:in=`.
+- **Segment IDs are UUIDs** (strings), not integers — don't assume incrementing integer IDs.
+- Shopper profiles: `GET/POST /v3/shopper-profiles` (a profile wraps a `customer_id`; profile IDs are also UUIDs)
+- Membership: `GET/POST/DELETE /v3/segments/{seg_id}/shopper-profiles` — `POST` body is a **bare array of shopper-profile UUID strings** (`["uuid1", "uuid2"]`, not objects), max 50/request, 10 concurrent; `DELETE` takes UUIDs via `?id:in=` (no body).
+- Reverse lookup: `GET /v3/shopper-profiles/{id}/segments`
 
-Flow: ensure a shopper profile exists per customer → add profile IDs to the segment → reference the segment in a promotion rule condition (`"customer": {"segments": {"id": [...]}}`).
+Flow: ensure a shopper profile exists per customer → add the profile's UUID to the segment → reference the segment's UUID in a promotion rule condition (`"customer": {"segments": {"id": [...]}}`).
 
 ## Banners & gift certificates
 
@@ -122,10 +135,17 @@ Flow: ensure a shopper profile exists per customer → add profile IDs to the se
 
 Multi-storefront / marketplace merchandising.
 
-- `GET/POST /v3/channels`, `PUT /v3/channels/{id}`
-- Product↔channel assignment: `GET/PUT/DELETE /v3/catalog/products/channel-assignments` — `[{"product_id": 1, "channel_id": 2}]`
-- Per-channel overrides (name/description/state): `GET/POST/PUT /v3/channels/{id}/listings`
+- `GET/POST /v3/channels`, `PUT /v3/channels/{id}`. Create requires `name`, `type` (`storefront`|`marketplace`|`pos`|`marketing`), `platform` — `type`/`platform`/`status` must be a valid combo (see BC's channel status matrix) and neither `type` nor `platform` can be changed after creation. Channel `1` is always the default storefront and always exists.
+- Product↔channel assignment (puts a product on a **storefront**, incl. the default one): `GET/PUT/DELETE /v3/catalog/products/channel-assignments` — `[{"product_id": 1, "channel_id": 2}]`. This is the fix for "product created via the API isn't listed on any storefront" — product creates do **not** auto-assign to a channel, so always follow a `POST /v3/catalog/products` with this call for whichever channel(s) the product should appear on.
+- `GET/POST/PUT /v3/channels/{id}/listings` (+ `DELETE .../listings/{listing_id}`) — BC's own docs say to prefer this for **non-storefront** channels (marketplaces, POS, marketing), not for the default/storefront channel. `state` is one of `active`|`disabled`|`pending`|`pending_disable`|`pending_delete`|`partially_rejected`|`queued`|`rejected`|`submitted`|`error`|`deleted`. `product_id` is immutable after creation; if `listing_id` doesn't exist the API returns 200 with empty data rather than a 404.
+- Multi-currency per channel: `GET/PUT /v3/channels/currency-assignments` (all channels, batch) or `GET/PUT /v3/channels/{id}/currency-assignments` (one channel). Currencies must already exist store-wide (`POST /v2/currencies` or control panel) before they can be assigned to a channel.
 - Category assignment per channel happens via category **trees** (see catalog.md)
+
+## Pricing & currencies
+
+- **Calculated price lookup**: `POST /v3/pricing/products` — given `channel_id`, `currency_code`, `items: [{"product_id", "variant_id", "options": [...]}]` (and optionally `customer_group_id`, `customer_id`, `country_code`), returns the final resolved price after price lists, promotions, and tax rules are applied. Use this to verify "what would the customer actually see" instead of manually combining catalog price + price list + promotion. `channel_id`, `currency_code`, and `items` are required; limit 50 concurrent requests.
+- **Store currencies (v2 only — no v3 equivalent)**: `GET/POST /v2/currencies`, `GET/PUT/DELETE /v2/currencies/{id}`. Create requires `name`, `currency_code`, `currency_exchange_rate`, `token_location`, `token`, `decimal_token`, `thousands_token`, `decimal_places`. `is_default` can only be set to `true`, never unset directly (set a different currency's `is_default: true` instead); a currency with `is_default: true` can't be deleted; `currency_code` is read-only on update.
+- To make a non-default currency usable on a specific channel/storefront, create it via `/v2/currencies` first, then assign it with `/v3/channels/currency-assignments` (above).
 
 ## Merchandising levers cheat sheet
 
