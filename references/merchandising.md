@@ -54,7 +54,43 @@ Anatomy of a promotion:
 }
 ```
 
-Action shapes worth knowing: `cart_items` (item-level discount, target by `categories`/`brands`/`products`/`variants` or `{"and":[...]}` combos), `cart_value` (order subtotal discount), `shipping` (free/discounted shipping, `zone_ids` or `"*"`), `gift_item` (free gift `product_id`/`variant_id`), `fixed_price_set` (bundle pricing). Conditions can nest `and`/`or`/`not` over cart contents, spend, and item quantities. BYGO = condition on qty of X + `gift_item` or `cart_items` action with `apply_once: true`.
+Action shapes worth knowing: `cart_items` (item-level discount, target by `categories`/`brands`/`products`/`variants` or `{"and":[...]}` combos), `cart_value` (order subtotal discount), `shipping` (free/discounted shipping, `zone_ids` or `"*"`), `gift_item` (free gift `product_id`/`variant_id`), `fixed_price_set` (bundle pricing). Conditions can nest `and`/`or`/`not` over cart contents, spend, and item quantities.
+
+**"Buy N, get 1 free" (same product) — confirmed live, full recipe:** condition requires `minimum_quantity: N+1` of the product in cart; action discounts **that same product**, capped to `quantity: 1`, at 100%:
+
+```json
+{
+  "name": "UWELL: Buy 1 Viscore Pro+ Kit, Get 1 Free",
+  "redemption_type": "AUTOMATIC",
+  "status": "ENABLED",
+  "rules": [{
+    "condition": {"cart": {"items": {"products": [1424]}, "minimum_quantity": 2}},
+    "action": {"cart_items": {"discount": {"percentage_amount": "100"}, "items": {"products": [1424]}, "quantity": 1}},
+    "apply_once": true
+  }]
+}
+```
+
+Key `cart_items` action fields beyond `discount`/`items` (per the official spec, `admin-management-promotions.json`): `quantity` (caps how many matching units get discounted — this is what turns a blanket "100% off everything matching" into "100% off exactly 1 unit"; omit for unlimited), `strategy` (`LEAST_EXPENSIVE`/`LEAST_EXPENSIVE_ONLY`/`MOST_EXPENSIVE`/`MOST_EXPENSIVE_ONLY` — which unit(s) get picked when several qualify), `as_total` (bool — spread a fixed discount across matching items instead of applying it per-item), `include_items_considered_by_condition` (bool, **defaults `false`** — by default the units that satisfied the *condition*'s `minimum_quantity` are excluded from the *action*'s discount pool, which is exactly what makes the buy-N-get-1 math work: with `minimum_quantity: 2` and `quantity: 1`, one unit satisfies the condition and the other is the one that gets discounted; you'd only flip this to `true` for something like "buy 1, that same 1 unit is 20% off"), `exclude_items_on_sale` (bool), `add_free_item` (bool — tries to add a free unit to the cart rather than discounting an existing one, falling back to the 100%-off-existing-unit behavior if it can't). The response echoes back `add_free_item: true` and `strategy: "LEAST_EXPENSIVE"` even when omitted from the request — those are server-side defaults, not something that silently failed to save.
+
+**"Buy X, get a DIFFERENT free item Y" — `gift_item` action, confirmed live:** use this instead of `cart_items` when the free item isn't the same product being bought (e.g. "buy a kit, get a free e-liquid"). Body: `{"gift_item": {"variant_id": N, "quantity": M}}` (schema also allows `product_id`, but see gotcha below), condition is a normal `cart` condition with `items` + `minimum_quantity` on the *purchased* product/brand/category:
+
+```json
+{
+  "name": "VOOPOO: Buy 75 Nexay Kits, Get 75 Nexay Pods Free",
+  "redemption_type": "AUTOMATIC",
+  "status": "ENABLED",
+  "rules": [{
+    "condition": {"cart": {"items": {"products": [1564]}, "minimum_quantity": 75}},
+    "action": {"gift_item": {"variant_id": 9513, "quantity": 75}},
+    "apply_once": true
+  }]
+}
+```
+
+**Gotcha, confirmed live: `gift_item.product_id` fails on any product that has modifier/option variants** — `422 "Products with modifier options cannot be added to the cart automatically. Choose another gift item."` — even though the OpenAPI spec lists `product_id` as valid alongside `variant_id` and marks neither as individually required. The engine can't auto-resolve which variant to gift when there's a choice to make, so use `variant_id` (a specific SKU, e.g. one flavor/strength) instead — that always works regardless of how many variants the parent product has. Condition-side `items.products`/`items.brands` matchers have no such restriction (they match at the product/brand level fine); it's specifically the *gifted* item that needs to be unambiguous.
+
+The `condition.cart.items` matcher for gift-item promos can use `products` (specific SKUs, e.g. "buy any of these named kits") or `brands` (e.g. "buy 5+ of any product from this brand") — same `ItemMatcher` shape as `cart_items` actions.
 
 `cart_value` worked example — "N% off the whole order once spend crosses a threshold" (a common ask):
 
