@@ -1,4 +1,4 @@
-> **Archived — moved to [bigcommerce-skills/bigcommerce-admin](https://github.com/rezakalfane-bigcommerce/bigcommerce-skills/tree/main/bigcommerce-admin).** This standalone repo is no longer updated.
+> **Archived — moved to [commerce-skills/bigcommerce-admin](https://github.com/rezakalfane-bigcommerce/commerce-skills/tree/main/bigcommerce-admin).** This standalone repo is no longer updated.
 
 # bigcommerce-admin
 
