@@ -1,3 +1,5 @@
+> **Archived — moved to [bigcommerce-skills/bigcommerce-admin](https://github.com/rezakalfane-bigcommerce/bigcommerce-skills/tree/main/bigcommerce-admin).** This standalone repo is no longer updated.
+
 # bigcommerce-admin
 
 A [Claude Code](https://claude.com/claude-code) skill for administering a BigCommerce store through the BigCommerce REST Management APIs — catalog and merchandising, orders and customers, store configuration, and B2B Edition.
